@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: aircraft-seating-system
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --config gunicorn_config.py app:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: FLASK_ENV
+        value: production
+    domains:
+      - aircraft-seating-system.onrender.com
