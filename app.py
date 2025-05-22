@@ -235,11 +235,6 @@ class AircraftSeatingSystem:
         accessible_seats = [(row, letter) for (row, letter), seat in self.seats.items()
                            if seat.is_accessible and seat.is_available and seat.passenger_id is None]
         
-        # CRITICAL: Exclude VIP zones for non-VIP passengers even for accessibility
-        if not passenger.is_vip:
-            accessible_seats = [(row, letter) for row, letter in accessible_seats
-                               if not self.seats[(row, letter)].is_vip_zone]
-        
         if accessible_seats:
             row, letter = accessible_seats[0]
             return self._assign_seat_to_passenger(passenger, row, letter)
@@ -247,11 +242,6 @@ class AircraftSeatingSystem:
         # Fallback to aisle seats
         aisle_seats = [(row, letter) for (row, letter), seat in self.seats.items()
                       if seat.seat_type == SeatType.AISLE and seat.is_available and seat.passenger_id is None]
-        
-        # CRITICAL: Exclude VIP zones for non-VIP passengers in fallback too
-        if not passenger.is_vip:
-            aisle_seats = [(row, letter) for row, letter in aisle_seats
-                          if not self.seats[(row, letter)].is_vip_zone]
         
         if aisle_seats:
             row, letter = aisle_seats[0]
@@ -271,11 +261,6 @@ class AircraftSeatingSystem:
         # Find best row that can accommodate the group
         for row_num, available_seats in available_rows:
             if len(available_seats) >= group.size:
-                # CRITICAL: Check VIP zone restriction for non-VIP groups
-                if not group.is_vip and any(self.seats[(row_num, letter)].is_vip_zone 
-                                          for row_num, letter in available_seats[:group.size]):
-                    continue
-                
                 # Check quiet zone restriction
                 if group.has_children and any(self.seats[(row_num, letter)].is_quiet_zone 
                                             for row_num, letter in available_seats[:group.size]):
@@ -323,15 +308,10 @@ class AircraftSeatingSystem:
 
     def _assign_solo_passenger(self, passenger: Passenger) -> bool:
         """Assign seat to solo passenger"""
-        # Prefer window and aisle seats, but EXCLUDE VIP zones for non-VIP passengers
+        # Prefer window and aisle seats
         preferred_seats = [(row, letter) for (row, letter), seat in self.seats.items()
                           if seat.is_available and seat.passenger_id is None and
                           seat.seat_type in [SeatType.WINDOW, SeatType.AISLE]]
-        
-        # CRITICAL: Exclude VIP zones for non-VIP passengers
-        if not passenger.is_vip:
-            preferred_seats = [(row, letter) for row, letter in preferred_seats
-                              if not self.seats[(row, letter)].is_vip_zone]
         
         # Avoid quiet zone for children and seniors have flexible seating
         if passenger.age < 12:  # Child
@@ -350,14 +330,9 @@ class AircraftSeatingSystem:
             row, letter = target_seats[0]
             return self._assign_seat_to_passenger(passenger, row, letter)
         
-        # Fallback to any available seat (but still exclude VIP zones for non-VIP)
+        # Fallback to any available seat
         any_available = [(row, letter) for (row, letter), seat in self.seats.items()
                         if seat.is_available and seat.passenger_id is None]
-        
-        # CRITICAL: Still exclude VIP zones in fallback for non-VIP passengers
-        if not passenger.is_vip:
-            any_available = [(row, letter) for row, letter in any_available
-                            if not self.seats[(row, letter)].is_vip_zone]
         
         if any_available:
             row, letter = any_available[0]
