@@ -186,9 +186,26 @@
             text-align: center;
             margin: 10px 0;
         }
+
+        .loading {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 2000;
+        }
     </style>
 </head>
 <body class="gradient-bg min-h-screen">
+    <div class="loading" id="loading">
+        <i class="fas fa-spinner fa-spin mr-2"></i>Processing...
+    </div>
+
     <div class="container mx-auto p-6">
         <!-- Header -->
         <div class="text-center mb-8">
@@ -325,7 +342,7 @@
                     
                     <div class="aircraft-body">
                         <div id="seatingLayout" class="text-center">
-                            <!-- Seating layout will be dynamically generated here -->
+                            <p class="text-gray-500">Loading seating layout...</p>
                         </div>
                     </div>
                 </div>
@@ -336,7 +353,7 @@
                         <i class="fas fa-list mr-2"></i>Passenger List
                     </h2>
                     <div id="passengerList" class="space-y-2">
-                        <!-- Passenger list will be populated here -->
+                        <p class="text-gray-500">No passengers added yet</p>
                     </div>
                     
                     <!-- Waiting List -->
@@ -387,8 +404,18 @@
     <script>
         let currentOverridePassenger = null;
 
+        // Show/hide loading
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded, initializing...');
             loadSeatingLayout();
             loadPassengerList();
         });
@@ -397,8 +424,8 @@
             const name = document.getElementById('soloName').value.trim();
             const age = parseInt(document.getElementById('soloAge').value);
             
-            if (!name || !age) {
-                alert('Please fill in name and age');
+            if (!name || !age || age < 1 || age > 120) {
+                showNotification('Please fill in valid name and age (1-120)', 'error');
                 return;
             }
             
@@ -410,6 +437,7 @@
                 senior: document.getElementById('soloSenior').checked
             };
             
+            showLoading();
             try {
                 const response = await fetch('/api/add-solo-passenger', {
                     method: 'POST',
@@ -426,14 +454,16 @@
                     document.getElementById('soloVip').checked = false;
                     document.getElementById('soloSenior').checked = false;
                     
-                    loadPassengerList();
+                    await loadPassengerList();
                     showNotification('Solo passenger added successfully!', 'success');
                 } else {
-                    showNotification('Failed to add passenger', 'error');
+                    showNotification('Failed to add passenger: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error adding passenger', 'error');
+                showNotification('Error adding passenger: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
@@ -442,7 +472,7 @@
             const size = parseInt(document.getElementById('groupSize').value);
             
             if (!name || !size || size < 2 || size > 7) {
-                alert('Please provide valid group name and size (2-7)');
+                showNotification('Please provide valid group name and size (2-7)', 'error');
                 return;
             }
             
@@ -455,6 +485,7 @@
                 senior: document.getElementById('groupSenior').checked
             };
             
+            showLoading();
             try {
                 const response = await fetch('/api/add-group', {
                     method: 'POST',
@@ -472,18 +503,21 @@
                     document.getElementById('groupVip').checked = false;
                     document.getElementById('groupSenior').checked = false;
                     
-                    loadPassengerList();
+                    await loadPassengerList();
                     showNotification('Group added successfully!', 'success');
                 } else {
-                    showNotification('Failed to add group', 'error');
+                    showNotification('Failed to add group: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error adding group', 'error');
+                showNotification('Error adding group: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
         async function assignSeats() {
+            showLoading();
             try {
                 const response = await fetch('/api/assign-seats', {
                     method: 'POST',
@@ -492,53 +526,74 @@
                 
                 const result = await response.json();
                 if (result.success) {
-                    loadSeatingLayout();
-                    loadPassengerList();
+                    await loadSeatingLayout();
+                    await loadPassengerList();
                     showNotification('Seats assigned successfully!', 'success');
                 } else {
-                    showNotification('Failed to assign seats', 'error');
+                    showNotification('Failed to assign seats: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error assigning seats', 'error');
+                showNotification('Error assigning seats: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
         async function loadSeatingLayout() {
             try {
                 const response = await fetch('/api/seating-layout');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const layout = await response.json();
                 renderSeatingLayout(layout);
             } catch (error) {
                 console.error('Error loading seating layout:', error);
+                document.getElementById('seatingLayout').innerHTML = 
+                    '<p class="text-red-500">Error loading seating layout</p>';
             }
         }
 
         function renderSeatingLayout(layout) {
             const container = document.getElementById('seatingLayout');
-            container.innerHTML = '';
+            
+            if (!layout || Object.keys(layout).length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No seating data available</p>';
+                return;
+            }
+
+            let html = '';
             
             // First Class (Rows 1-3)
-            container.innerHTML += '<div class="section-header">First Class</div>';
+            html += '<div class="section-header">First Class</div>';
             for (let row = 1; row <= 3; row++) {
-                container.innerHTML += renderRow(row, layout[row], ['A', 'B', '', 'D', 'E']);
+                if (layout[row]) {
+                    html += renderRow(row, layout[row], ['A', 'B', '', 'D', 'E']);
+                }
             }
             
-            container.innerHTML += '<div class="class-divider"></div>';
+            html += '<div class="class-divider"></div>';
             
             // Business Class (Rows 4-8)
-            container.innerHTML += '<div class="section-header">Business Class</div>';
+            html += '<div class="section-header">Business Class</div>';
             for (let row = 4; row <= 8; row++) {
-                container.innerHTML += renderRow(row, layout[row], ['A', 'B', 'C', 'D', 'E']);
+                if (layout[row]) {
+                    html += renderRow(row, layout[row], ['A', 'B', 'C', 'D', 'E']);
+                }
             }
             
-            container.innerHTML += '<div class="class-divider"></div>';
+            html += '<div class="class-divider"></div>';
             
             // Economy Class (Rows 9-30)
-            container.innerHTML += '<div class="section-header">Economy Class</div>';
+            html += '<div class="section-header">Economy Class</div>';
             for (let row = 9; row <= 30; row++) {
-                container.innerHTML += renderRow(row, layout[row], ['A', 'B', 'C', '', 'D', 'E', 'F']);
+                if (layout[row]) {
+                    html += renderRow(row, layout[row], ['A', 'B', 'C', '', 'D', 'E', 'F']);
+                }
             }
+
+            container.innerHTML = html;
         }
 
         function renderRow(rowNumber, rowData, seatLetters) {
@@ -558,6 +613,9 @@
                                        title="${getSeatTitle(seat)}">
                                        ${letter}
                                    </div>`;
+                    } else {
+                        // Seat doesn't exist in this configuration
+                        rowHtml += '<div style="width: 42px; height: 42px;"></div>';
                     }
                 }
             }
@@ -586,7 +644,6 @@
         }
 
         function seatClicked(row, letter) {
-            // For demo purposes, show seat info
             const seat = document.getElementById(`seat-${row}-${letter}`);
             const title = seat.getAttribute('title');
             showNotification(title, 'info');
@@ -595,10 +652,15 @@
         async function loadPassengerList() {
             try {
                 const response = await fetch('/api/passenger-list');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const data = await response.json();
-                renderPassengerList(data.passengers, data.waiting_list);
+                renderPassengerList(data.passengers || [], data.waiting_list || []);
             } catch (error) {
                 console.error('Error loading passenger list:', error);
+                document.getElementById('passengerList').innerHTML = 
+                    '<p class="text-red-500">Error loading passenger list</p>';
             }
         }
 
@@ -608,40 +670,39 @@
             
             if (passengers.length === 0) {
                 container.innerHTML = '<p class="text-gray-500 text-center">No passengers added yet</p>';
-                return;
-            }
-            
-            passengers.forEach(passenger => {
-                const passengerDiv = document.createElement('div');
-                passengerDiv.className = 'bg-gray-50 p-3 rounded-lg flex justify-between items-center fade-in';
-                
-                let badgeHtml = '';
-                if (passenger.is_vip) badgeHtml += '<span class="bg-yellow-500 text-white px-2 py-1 rounded text-xs mr-1">VIP</span>';
-                if (passenger.has_accessibility_needs) badgeHtml += '<span class="bg-green-500 text-white px-2 py-1 rounded text-xs mr-1">Accessible</span>';
-                if (passenger.is_senior) badgeHtml += '<span class="bg-purple-500 text-white px-2 py-1 rounded text-xs mr-1">Senior</span>';
-                
-                const seatInfo = passenger.assigned_seat 
-                    ? `${passenger.assigned_seat[0]}${passenger.assigned_seat[1]}` 
-                    : 'Not assigned';
-                
-                passengerDiv.innerHTML = `
-                    <div class="flex-1">
-                        <div class="font-semibold">${passenger.name}</div>
-                        <div class="text-sm text-gray-600">
-                            Age: ${passenger.age} | Type: ${passenger.type} | Seat: ${seatInfo}
+            } else {
+                passengers.forEach(passenger => {
+                    const passengerDiv = document.createElement('div');
+                    passengerDiv.className = 'bg-gray-50 p-3 rounded-lg flex justify-between items-center fade-in';
+                    
+                    let badgeHtml = '';
+                    if (passenger.is_vip) badgeHtml += '<span class="bg-yellow-500 text-white px-2 py-1 rounded text-xs mr-1">VIP</span>';
+                    if (passenger.has_accessibility_needs) badgeHtml += '<span class="bg-green-500 text-white px-2 py-1 rounded text-xs mr-1">Accessible</span>';
+                    if (passenger.is_senior) badgeHtml += '<span class="bg-purple-500 text-white px-2 py-1 rounded text-xs mr-1">Senior</span>';
+                    
+                    const seatInfo = passenger.assigned_seat 
+                        ? `${passenger.assigned_seat[0]}${passenger.assigned_seat[1]}` 
+                        : 'Not assigned';
+                    
+                    passengerDiv.innerHTML = `
+                        <div class="flex-1">
+                            <div class="font-semibold">${passenger.name}</div>
+                            <div class="text-sm text-gray-600">
+                                Age: ${passenger.age} | Type: ${passenger.type} | Seat: ${seatInfo}
+                            </div>
+                            <div class="mt-1">${badgeHtml}</div>
                         </div>
-                        <div class="mt-1">${badgeHtml}</div>
-                    </div>
-                    <div class="flex space-x-2">
-                        <button onclick="showOverrideModal('${passenger.id}', '${passenger.name}')" 
-                                class="btn-secondary text-xs">Override</button>
-                        <button onclick="cancelBooking('${passenger.id}')" 
-                                class="btn-danger text-xs">Cancel</button>
-                    </div>
-                `;
-                
-                container.appendChild(passengerDiv);
-            });
+                        <div class="flex space-x-2">
+                            <button onclick="showOverrideModal('${passenger.id}', '${passenger.name}')" 
+                                    class="btn-secondary text-xs">Override</button>
+                            <button onclick="cancelBooking('${passenger.id}')" 
+                                    class="btn-danger text-xs">Cancel</button>
+                        </div>
+                    `;
+                    
+                    container.appendChild(passengerDiv);
+                });
+            }
             
             // Handle waiting list
             const waitingSection = document.getElementById('waitingListSection');
@@ -685,11 +746,12 @@
             const row = parseInt(document.getElementById('overrideRow').value);
             const seatLetter = document.getElementById('overrideSeat').value;
             
-            if (!row || !seatLetter) {
-                alert('Please select row and seat');
+            if (!row || !seatLetter || row < 1 || row > 30) {
+                showNotification('Please select valid row (1-30) and seat', 'error');
                 return;
             }
             
+            showLoading();
             try {
                 const response = await fetch('/api/admin-override', {
                     method: 'POST',
@@ -704,21 +766,24 @@
                 const result = await response.json();
                 if (result.success) {
                     closeOverrideModal();
-                    loadSeatingLayout();
-                    loadPassengerList();
+                    await loadSeatingLayout();
+                    await loadPassengerList();
                     showNotification('Seat override successful!', 'success');
                 } else {
-                    showNotification('Failed to override seat', 'error');
+                    showNotification('Failed to override seat: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error during override', 'error');
+                showNotification('Error during override: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
         async function cancelBooking(passengerId) {
             if (!confirm('Are you sure you want to cancel this booking?')) return;
             
+            showLoading();
             try {
                 const response = await fetch('/api/cancel-booking', {
                     method: 'POST',
@@ -728,21 +793,24 @@
                 
                 const result = await response.json();
                 if (result.success) {
-                    loadSeatingLayout();
-                    loadPassengerList();
+                    await loadSeatingLayout();
+                    await loadPassengerList();
                     showNotification('Booking cancelled successfully!', 'success');
                 } else {
-                    showNotification('Failed to cancel booking', 'error');
+                    showNotification('Failed to cancel booking: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error cancelling booking', 'error');
+                showNotification('Error cancelling booking: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
         async function resetSystem() {
             if (!confirm('Are you sure you want to reset the entire system? This will remove all passengers and seat assignments.')) return;
             
+            showLoading();
             try {
                 const response = await fetch('/api/reset-system', {
                     method: 'POST',
@@ -751,34 +819,51 @@
                 
                 const result = await response.json();
                 if (result.success) {
-                    loadSeatingLayout();
-                    loadPassengerList();
+                    await loadSeatingLayout();
+                    await loadPassengerList();
                     showNotification('System reset successfully!', 'success');
                 } else {
-                    showNotification('Failed to reset system', 'error');
+                    showNotification('Failed to reset system: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('Error:', error);
-                showNotification('Error resetting system', 'error');
+                showNotification('Error resetting system: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
         function showNotification(message, type) {
+            // Remove existing notifications
+            const existingNotifications = document.querySelectorAll('.notification');
+            existingNotifications.forEach(n => n.remove());
+
             // Create notification element
             const notification = document.createElement('div');
-            notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+            notification.className = `notification fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 max-w-md ${
                 type === 'success' ? 'bg-green-500 text-white' :
                 type === 'error' ? 'bg-red-500 text-white' :
                 'bg-blue-500 text-white'
             }`;
-            notification.textContent = message;
+            notification.style.animation = 'slideIn 0.3s ease-out';
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2"></i>
+                    <span class="flex-1">${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-2 text-white hover:text-gray-200">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
             
             document.body.appendChild(notification);
             
-            // Remove after 3 seconds
+            // Remove after 5 seconds
             setTimeout(() => {
-                notification.remove();
-            }, 3000);
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 5000);
         }
 
         // Close modal when clicking outside
@@ -788,6 +873,12 @@
                 closeOverrideModal();
             }
         }
+
+        // Error handling for the entire page
+        window.addEventListener('error', function(e) {
+            console.error('Page error:', e.error);
+            showNotification('An unexpected error occurred', 'error');
+        });
     </script>
 </body>
 </html>
