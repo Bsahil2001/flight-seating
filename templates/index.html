@@ -162,6 +162,9 @@
                         <button onclick="assignSeats()" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600">
                             🎯 Assign Seats
                         </button>
+                        <button onclick="debugSystem()" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600">
+                            🔧 Debug Info
+                        </button>
                         <button onclick="resetAll()" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">
                             🔄 Reset All
                         </button>
@@ -250,6 +253,8 @@
             const name = document.getElementById('soloName').value.trim();
             const age = parseInt(document.getElementById('soloAge').value);
             
+            console.log('Adding solo passenger:', { name, age });
+            
             if (!name || !age) {
                 alert('Please enter name and age');
                 return;
@@ -263,6 +268,8 @@
                 senior: document.getElementById('soloSenior').checked
             };
             
+            console.log('Solo passenger data:', data);
+            
             try {
                 const response = await fetch('/api/add-solo-passenger', {
                     method: 'POST',
@@ -270,17 +277,23 @@
                     body: JSON.stringify(data)
                 });
                 
-                if (response.ok) {
+                const result = await response.json();
+                console.log('Add solo result:', result);
+                
+                if (result.success) {
                     document.getElementById('soloName').value = '';
                     document.getElementById('soloAge').value = '';
                     document.getElementById('soloVip').checked = false;
                     document.getElementById('soloAccessibility').checked = false;
                     document.getElementById('soloSenior').checked = false;
                     
-                    loadPassengers();
+                    await loadPassengers();
                     showMessage('Solo passenger added!', 'success');
+                } else {
+                    showMessage('Failed to add passenger', 'error');
                 }
             } catch (error) {
+                console.error('Error adding passenger:', error);
                 showMessage('Error adding passenger', 'error');
             }
         }
@@ -327,19 +340,29 @@
         }
 
         async function assignSeats() {
+            console.log('🎯 Starting seat assignment...');
+            
             try {
                 const response = await fetch('/api/assign-seats', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'}
                 });
                 
-                if (response.ok) {
-                    loadLayout();
-                    loadPassengers();
-                    showMessage('Seats assigned!', 'success');
+                const result = await response.json();
+                console.log('Assignment result:', result);
+                
+                if (result.success) {
+                    console.log('✅ Assignment successful, reloading layout...');
+                    await loadLayout();
+                    await loadPassengers();
+                    showMessage('Seats assigned successfully!', 'success');
+                } else {
+                    console.error('❌ Assignment failed:', result.error);
+                    showMessage('Assignment failed: ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                showMessage('Error assigning seats', 'error');
+                console.error('❌ Network error:', error);
+                showMessage('Error assigning seats: ' + error.message, 'error');
             }
         }
 
@@ -428,11 +451,19 @@
         }
 
         async function loadPassengers() {
+            console.log('📋 Loading passengers...');
+            
             try {
                 const response = await fetch('/api/passenger-list');
                 const data = await response.json();
+                
+                console.log('Passenger data received:', data);
+                console.log('Number of passengers:', data.passengers.length);
+                console.log('Waiting list length:', data.waiting_list.length);
+                
                 renderPassengers(data.passengers, data.waiting_list);
             } catch (error) {
+                console.error('Error loading passengers:', error);
                 document.getElementById('passengerList').innerHTML = 'Error loading passengers';
             }
         }
@@ -551,7 +582,54 @@
             }
         }
 
+        async function debugSystem() {
+            console.log('🔧 Getting debug info...');
+            
+            try {
+                const response = await fetch('/api/debug-info');
+                const info = await response.json();
+                
+                console.log('=== SYSTEM DEBUG INFO ===');
+                console.log('Passengers:', info.passengers_count);
+                console.log('Groups:', info.groups_count);
+                console.log('Waiting List:', info.waiting_list_count);
+                console.log('Available Seats:', info.available_seats_count);
+                console.log('Occupied Seats:', info.occupied_seats_count);
+                console.log('VIP Seats Available:', info.vip_seats_available);
+                console.log('Accessible Seats Available:', info.accessible_seats_available);
+                console.log('Passenger Details:', info.passengers);
+                console.log('========================');
+                
+                alert(`Debug Info (check console for details):
+Passengers: ${info.passengers_count}
+Groups: ${info.groups_count}
+Available Seats: ${info.available_seats_count}
+VIP Seats: ${info.vip_seats_available}
+Accessible Seats: ${info.accessible_seats_available}`);
+                
+            } catch (error) {
+                console.error('Error getting debug info:', error);
+            }
+        }
+
         async function resetAll() {
+            if (!confirm('Reset everything?')) return;
+            
+            try {
+                const response = await fetch('/api/reset-system', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                
+                if (response.ok) {
+                    loadLayout();
+                    loadPassengers();
+                    showMessage('System reset!', 'success');
+                }
+            } catch (error) {
+                showMessage('Reset failed', 'error');
+            }
+        }
             if (!confirm('Reset everything?')) return;
             
             try {
