@@ -99,7 +99,7 @@ class AircraftSeatingSystem:
                     seat_class=SeatClass.BUSINESS,
                     seat_type=seat_type,
                     is_vip_zone=(row <= 6),
-                    is_accessible=(seat_letter in ['B', 'D'] and row == 8)
+                    is_accessible=(seat_letter in ['B', 'D'] and row >= 7)  # More accessible seats in rows 7-8
                 )
 
         # Economy Class: Rows 9-30, 3-3 configuration
@@ -118,7 +118,7 @@ class AircraftSeatingSystem:
                     seat_class=SeatClass.ECONOMY,
                     seat_type=seat_type,
                     is_quiet_zone=(16 <= row <= 18),
-                    is_accessible=(seat_letter in ['C', 'D'] and row >= 25)
+                    is_accessible=(seat_letter in ['C', 'D'] and row >= 20)  # More accessible seats from row 20 onwards
                 )
 
     def mark_unavailable_seats(self):
@@ -195,37 +195,50 @@ class AircraftSeatingSystem:
     def assign_seats(self) -> bool:
         """Main seating algorithm"""
         try:
+            print("=== STARTING SEAT ASSIGNMENT ===")
+            
             # Clear waiting list
             self.waiting_list = []
             
             # Step 1: Process VIP passengers first
             vip_passengers = [p for p in self.passengers.values() 
                             if p.is_vip and p.passenger_type == PassengerType.SOLO and p.assigned_seat is None]
+            print(f"Step 1: Found {len(vip_passengers)} VIP solo passengers")
             for passenger in vip_passengers:
-                self._assign_vip_passenger(passenger)
+                success = self._assign_vip_passenger(passenger)
+                print(f"VIP passenger {passenger.name}: {'SUCCESS' if success else 'FAILED'}")
             
             # Step 2: Handle passengers with accessibility needs
             accessibility_passengers = [p for p in self.passengers.values() 
                                       if p.has_accessibility_needs and p.assigned_seat is None]
+            print(f"Step 2: Found {len(accessibility_passengers)} accessibility passengers")
             for passenger in accessibility_passengers:
-                self._assign_accessibility_passenger(passenger)
+                success = self._assign_accessibility_passenger(passenger)
+                print(f"Accessibility passenger {passenger.name}: {'SUCCESS' if success else 'FAILED'}")
             
             # Step 3: Assign VIP groups
             vip_groups = [g for g in self.groups.values() if g.is_vip]
+            print(f"Step 3: Found {len(vip_groups)} VIP groups")
             for group in vip_groups:
-                self._assign_group(group)
+                success = self._assign_group(group)
+                print(f"VIP group {group.name}: {'SUCCESS' if success else 'FAILED'}")
             
             # Step 4: Assign regular groups
             regular_groups = [g for g in self.groups.values() if not g.is_vip]
+            print(f"Step 4: Found {len(regular_groups)} regular groups")
             for group in regular_groups:
-                self._assign_group(group)
+                success = self._assign_group(group)
+                print(f"Regular group {group.name}: {'SUCCESS' if success else 'FAILED'}")
             
             # Step 5: Place remaining solo travelers
             remaining_solo = [p for p in self.passengers.values() 
                             if p.passenger_type == PassengerType.SOLO and p.assigned_seat is None]
+            print(f"Step 5: Found {len(remaining_solo)} remaining solo passengers")
             for passenger in remaining_solo:
-                self._assign_solo_passenger(passenger)
+                success = self._assign_solo_passenger(passenger)
+                print(f"Solo passenger {passenger.name}: {'SUCCESS' if success else 'FAILED'}")
             
+            print("=== SEAT ASSIGNMENT COMPLETE ===")
             return True
         except Exception as e:
             print(f"Error in assign_seats: {e}")
@@ -254,30 +267,63 @@ class AircraftSeatingSystem:
     def _assign_accessibility_passenger(self, passenger: Passenger) -> bool:
         """Assign passenger with accessibility needs"""
         try:
+            print(f"Assigning accessibility passenger: {passenger.name} (VIP: {passenger.is_vip})")
+            
+            # First try designated accessible seats
             accessible_seats = [(row, letter) for (row, letter), seat in self.seats.items()
                                if seat.is_accessible and seat.is_available and seat.passenger_id is None]
             
+            print(f"Found {len(accessible_seats)} available accessible seats")
+            
+            # Filter out VIP zones for non-VIP passengers
             if not passenger.is_vip:
                 accessible_seats = [(row, letter) for row, letter in accessible_seats
                                    if not self.seats[(row, letter)].is_vip_zone]
+                print(f"After VIP filter: {len(accessible_seats)} accessible seats")
             
             if accessible_seats:
                 row, letter = accessible_seats[0]
+                print(f"Assigning accessible seat: {row}{letter}")
                 return self._assign_seat_to_passenger(passenger, row, letter)
             
-            # Fallback to aisle seats
+            # Fallback to any aisle seats (good for accessibility)
+            print("No designated accessible seats available, trying aisle seats...")
             aisle_seats = [(row, letter) for (row, letter), seat in self.seats.items()
                           if seat.seat_type == SeatType.AISLE and seat.is_available and seat.passenger_id is None]
             
+            print(f"Found {len(aisle_seats)} available aisle seats")
+            
+            # Filter out VIP zones for non-VIP passengers
             if not passenger.is_vip:
                 aisle_seats = [(row, letter) for row, letter in aisle_seats
                               if not self.seats[(row, letter)].is_vip_zone]
+                print(f"After VIP filter: {len(aisle_seats)} aisle seats")
             
             if aisle_seats:
                 row, letter = aisle_seats[0]
+                print(f"Assigning aisle seat: {row}{letter}")
                 return self._assign_seat_to_passenger(passenger, row, letter)
             
+            # Last resort: any available seat
+            print("No aisle seats available, trying any seat...")
+            any_seats = [(row, letter) for (row, letter), seat in self.seats.items()
+                        if seat.is_available and seat.passenger_id is None]
+            
+            if not passenger.is_vip:
+                any_seats = [(row, letter) for row, letter in any_seats
+                            if not self.seats[(row, letter)].is_vip_zone]
+            
+            if any_seats:
+                row, letter = any_seats[0]
+                print(f"Assigning any available seat: {row}{letter}")
+                return self._assign_seat_to_passenger(passenger, row, letter)
+            
+            print("No seats available for accessibility passenger")
+            # Add to waiting list
+            if passenger.id not in self.waiting_list:
+                self.waiting_list.append(passenger.id)
             return False
+            
         except Exception as e:
             print(f"Error assigning accessibility passenger: {e}")
             return False
@@ -397,19 +443,32 @@ class AircraftSeatingSystem:
     def _assign_seat_to_passenger(self, passenger: Passenger, row: int, seat_letter: str) -> bool:
         """Assign a specific seat to a passenger"""
         try:
+            print(f"Attempting to assign seat {row}{seat_letter} to {passenger.name}")
+            
             if (row, seat_letter) not in self.seats:
+                print(f"ERROR: Seat {row}{seat_letter} does not exist")
                 return False
             
             seat = self.seats[(row, seat_letter)]
-            if not seat.is_available or seat.passenger_id is not None:
+            
+            if not seat.is_available:
+                print(f"ERROR: Seat {row}{seat_letter} is not available (broken/blocked)")
+                return False
+                
+            if seat.passenger_id is not None:
+                print(f"ERROR: Seat {row}{seat_letter} is already occupied by {seat.passenger_id}")
                 return False
             
+            # Perform assignment
             seat.passenger_id = passenger.id
             seat.passenger_name = passenger.name
             passenger.assigned_seat = (row, seat_letter)
+            
+            print(f"SUCCESS: Assigned seat {row}{seat_letter} to {passenger.name}")
             return True
+            
         except Exception as e:
-            print(f"Error assigning seat: {e}")
+            print(f"Error assigning seat {row}{seat_letter} to {passenger.name}: {e}")
             return False
 
     def admin_override(self, passenger_id: str, row: int, seat_letter: str) -> bool:
@@ -508,9 +567,27 @@ class AircraftSeatingSystem:
         except Exception as e:
             print(f"Error resetting system: {e}")
 
+    def debug_seat_availability(self):
+        """Debug function to show seat availability"""
+        accessible_seats = [(row, letter) for (row, letter), seat in self.seats.items()
+                           if seat.is_accessible and seat.is_available and seat.passenger_id is None]
+        vip_accessible = [(row, letter) for row, letter in accessible_seats
+                         if self.seats[(row, letter)].is_vip_zone]
+        non_vip_accessible = [(row, letter) for row, letter in accessible_seats
+                             if not self.seats[(row, letter)].is_vip_zone]
+        
+        print(f"=== SEAT AVAILABILITY DEBUG ===")
+        print(f"Total accessible seats available: {len(accessible_seats)}")
+        print(f"VIP accessible seats: {len(vip_accessible)} - {vip_accessible[:5]}")
+        print(f"Non-VIP accessible seats: {len(non_vip_accessible)} - {non_vip_accessible[:5]}")
+        print(f"===============================")
+
     def get_seating_layout(self):
         """Get the current seating layout for display"""
         try:
+            # Add debug info
+            self.debug_seat_availability()
+            
             layout = {}
             for (row, letter), seat in self.seats.items():
                 if row not in layout:
