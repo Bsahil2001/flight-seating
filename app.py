@@ -76,109 +76,90 @@ def simple_assign_seats():
     global waiting_list
     waiting_list = []
     
-    all_passengers = list(passengers.values())
+    print("=== STARTING SEAT ASSIGNMENT ===")
+    print(f"Total passengers: {len(passengers)}")
+    print(f"Total groups: {len(groups)}")
     
-    # Sort passengers by priority
+    # Get all passengers who need seats
+    unassigned_passengers = []
+    for p in passengers.values():
+        if not p.get('assigned_seat'):
+            unassigned_passengers.append(p)
+    
+    print(f"Unassigned passengers: {len(unassigned_passengers)}")
+    
+    # Sort by priority: VIP first, then accessibility
     def get_priority(p):
         score = 0
         if p.get('is_vip'): score += 1000
         if p.get('has_accessibility'): score += 500
         return score
     
-    all_passengers.sort(key=get_priority, reverse=True)
+    unassigned_passengers.sort(key=get_priority, reverse=True)
     
-    # First assign groups
-    for group_id, group in groups.items():
-        assign_group(group)
+    # Assign each passenger
+    for passenger in unassigned_passengers:
+        print(f"Trying to assign: {passenger['name']}")
+        success = assign_passenger_to_seat(passenger)
+        print(f"Result: {'SUCCESS' if success else 'FAILED'}")
     
-    # Then assign solo passengers
-    solo_passengers = [p for p in all_passengers if not p.get('group_id')]
-    for passenger in solo_passengers:
-        if not passenger.get('assigned_seat'):
-            assign_solo_passenger(passenger)
+    print("=== ASSIGNMENT COMPLETE ===")
 
-def assign_group(group):
-    """Assign a group to seats"""
-    unassigned_members = [p for p in group['members'] if not passengers[p].get('assigned_seat')]
-    
-    if not unassigned_members:
-        return
-    
-    group_size = len(unassigned_members)
-    
-    # Find a row with enough seats
-    for row in range(1, 31):
-        available_in_row = []
-        for seat_id, seat in seats.items():
-            if seat['row'] == row and seat['available'] and not seat['passenger']:
-                # Check restrictions
-                if not group.get('is_vip') and seat['is_vip']:
-                    continue
-                if group.get('has_children') and seat['is_quiet']:
-                    continue
-                available_in_row.append(seat_id)
-        
-        if len(available_in_row) >= group_size:
-            # Assign seats
-            for i, member_id in enumerate(unassigned_members):
-                if i < len(available_in_row):
-                    seat_id = available_in_row[i]
-                    assign_seat(member_id, seat_id)
-            return
-    
-    # If couldn't assign together, assign individually
-    for member_id in unassigned_members:
-        assign_solo_passenger(passengers[member_id])
-
-def assign_solo_passenger(passenger):
-    """Assign solo passenger to best available seat"""
+def assign_passenger_to_seat(passenger):
+    """Assign a single passenger to the best available seat"""
     passenger_id = passenger['id']
     
-    # Find suitable seats
-    suitable_seats = []
+    print(f"  Looking for seat for {passenger['name']} (VIP: {passenger.get('is_vip')}, Access: {passenger.get('has_accessibility')})")
     
+    # Find all available seats
+    available_seats = []
     for seat_id, seat in seats.items():
-        if not seat['available'] or seat['passenger']:
-            continue
+        if seat['available'] and not seat['passenger']:
+            available_seats.append(seat_id)
+    
+    print(f"  Found {len(available_seats)} available seats")
+    
+    # Filter by restrictions
+    suitable_seats = []
+    for seat_id in available_seats:
+        seat = seats[seat_id]
         
-        # Check VIP restriction
+        # Check VIP restriction - non-VIP cannot sit in VIP zones
         if not passenger.get('is_vip') and seat['is_vip']:
             continue
         
-        # Check accessibility
-        if passenger.get('has_accessibility') and not seat['is_accessible']:
-            # For accessibility, prefer accessible seats but allow others
-            pass
-        
-        # Check quiet zone for children
+        # Check quiet zone - children under 12 cannot sit in quiet zone
         if passenger.get('age', 20) < 12 and seat['is_quiet']:
             continue
         
         suitable_seats.append(seat_id)
     
-    if suitable_seats:
-        # Prefer accessible seats for accessibility passengers
-        if passenger.get('has_accessibility'):
-            accessible_seats = [s for s in suitable_seats if seats[s]['is_accessible']]
-            if accessible_seats:
-                suitable_seats = accessible_seats
-        
-        # Assign first suitable seat
-        seat_id = suitable_seats[0]
-        assign_seat(passenger_id, seat_id)
-    else:
-        # Add to waiting list
+    print(f"  After restrictions: {len(suitable_seats)} suitable seats")
+    
+    if not suitable_seats:
+        print(f"  No suitable seats found for {passenger['name']}")
         if passenger_id not in waiting_list:
             waiting_list.append(passenger_id)
-
-def assign_seat(passenger_id, seat_id):
-    """Assign specific seat to passenger"""
-    if seat_id in seats and seats[seat_id]['available'] and not seats[seat_id]['passenger']:
-        seats[seat_id]['passenger'] = passenger_id
-        seats[seat_id]['passenger_name'] = passengers[passenger_id]['name']
-        passengers[passenger_id]['assigned_seat'] = seat_id
-        return True
-    return False
+        return False
+    
+    # For accessibility passengers, prefer accessible seats
+    if passenger.get('has_accessibility'):
+        accessible_seats = [s for s in suitable_seats if seats[s]['is_accessible']]
+        if accessible_seats:
+            print(f"  Found {len(accessible_seats)} accessible seats")
+            suitable_seats = accessible_seats
+    
+    # Assign the first suitable seat
+    seat_id = suitable_seats[0]
+    seat = seats[seat_id]
+    
+    # Do the assignment
+    seats[seat_id]['passenger'] = passenger_id
+    seats[seat_id]['passenger_name'] = passenger['name']
+    passengers[passenger_id]['assigned_seat'] = seat_id
+    
+    print(f"  ASSIGNED: {passenger['name']} -> {seat_id}")
+    return True
 
 # Initialize on startup
 initialize_aircraft()
@@ -299,10 +280,29 @@ def add_group():
 def assign_seats():
     """Run seat assignment algorithm"""
     try:
+        print("\n" + "="*50)
+        print("SEAT ASSIGNMENT API CALLED")
+        print(f"Passengers in system: {len(passengers)}")
+        print(f"Groups in system: {len(groups)}")
+        
+        # Reset all seat assignments first
+        for passenger in passengers.values():
+            passenger['assigned_seat'] = None
+        
+        for seat in seats.values():
+            seat['passenger'] = None
+            seat['passenger_name'] = None
+        
         simple_assign_seats()
+        
+        print("API: Assignment completed successfully")
+        print("="*50)
+        
         return jsonify({'success': True})
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"ERROR in assign_seats API: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/admin-override', methods=['POST'])
@@ -380,8 +380,42 @@ def cancel_booking():
     
     return jsonify({'success': True})
 
+@app.route('/api/debug-info')
+def debug_info():
+    """Debug endpoint to see system state"""
+    info = {
+        'passengers_count': len(passengers),
+        'groups_count': len(groups),
+        'waiting_list_count': len(waiting_list),
+        'passengers': {pid: {
+            'name': p['name'],
+            'assigned_seat': p.get('assigned_seat'),
+            'is_vip': p.get('is_vip'),
+            'has_accessibility': p.get('has_accessibility')
+        } for pid, p in passengers.items()},
+        'available_seats_count': len([s for s in seats.values() if s['available'] and not s['passenger']]),
+        'occupied_seats_count': len([s for s in seats.values() if s['passenger']]),
+        'vip_seats_available': len([s for s in seats.values() if s['available'] and not s['passenger'] and s['is_vip']]),
+        'accessible_seats_available': len([s for s in seats.values() if s['available'] and not s['passenger'] and s['is_accessible']])
+    }
+    return jsonify(info)
+
 @app.route('/api/reset-system', methods=['POST'])
 def reset_system():
+    """Reset entire system"""
+    global passengers, groups, waiting_list
+    
+    passengers = {}
+    groups = {}
+    waiting_list = []
+    
+    # Reset all seats
+    for seat in seats.values():
+        if seat['available']:  # Don't reset unavailable seats
+            seat['passenger'] = None
+            seat['passenger_name'] = None
+    
+    return jsonify({'success': True})
     """Reset entire system"""
     global passengers, groups, waiting_list
     
